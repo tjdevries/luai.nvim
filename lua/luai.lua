@@ -18,6 +18,7 @@ local path = require "luai.path"
 
 local M = {}
 local config = {
+  provider = "cursor",
   model = "composer-2-fast",
 }
 
@@ -26,7 +27,8 @@ local basepath = vim.fs.joinpath(vim.fn.stdpath "data" --[[@as string]], "luai",
 vim.fn.mkdir(basepath, "p")
 
 ---@class luai.Settings
----@field model? string: Default Cursor Agent model. Defaults to `composer-2-fast`.
+---@field provider? string: LLM backend. `"cursor"` (default) or `"claude"`. When using `"claude"` also set `model` to a Claude model name (e.g. `"claude-sonnet-4-6"`).
+---@field model? string: Model name passed to the provider CLI. Defaults to `"composer-2-fast"` (cursor). Must match chosen provider.
 
 ---@class luai.GeneratedFunction
 ---@field function_name string
@@ -118,54 +120,104 @@ local normalize_generated_code = function(response_text)
   ))
 end
 
+local backends = {}
+
+backends.cursor = {
+  check = function()
+    if vim.fn.executable "agent" ~= 1 then
+      error "[luai] Could not find `agent` on PATH. Install Cursor Agent CLI and make sure it is available in your shell."
+    end
+  end,
+  request = function(prompt, model, workspace)
+    local result = vim.system({
+      "agent",
+      "-p",
+      "--mode",
+      "ask",
+      "--output-format",
+      "json",
+      "--model",
+      model,
+      "--trust",
+      "--workspace",
+      workspace,
+      prompt,
+    }, { text = true }):wait()
+
+    local stdout = result.stdout or ""
+    local stderr = result.stderr or ""
+
+    if result.code ~= 0 then
+      stderr = vim.trim(stderr)
+      stdout = vim.trim(stdout)
+      local details = stderr ~= "" and stderr or stdout
+      if details ~= "" then
+        error(string.format("[luai] Cursor Agent request failed: %s", details))
+      end
+      error(string.format("[luai] Cursor Agent request failed with exit code %s", result.code))
+    end
+
+    local ok, decoded = pcall(vim.json.decode, stdout)
+    if not ok then
+      error(string.format("[luai] Cursor Agent returned invalid JSON:\n%s", stdout))
+    end
+
+    if type(decoded) ~= "table" or type(decoded.result) ~= "string" then
+      error(string.format("[luai] Cursor Agent JSON did not contain a string `result` field:\n%s", stdout))
+    end
+
+    return decoded.result
+  end,
+}
+
+backends.claude = {
+  check = function()
+    if vim.fn.executable "claude" ~= 1 then
+      error "[luai] Could not find `claude` on PATH. Install Claude CLI and make sure it is available in your shell."
+    end
+  end,
+  request = function(prompt, model, _workspace)
+    local result = vim.system({
+      "claude",
+      "-p",
+      "--model",
+      model,
+      prompt,
+    }, { text = true }):wait()
+
+    local stdout = result.stdout or ""
+    local stderr = result.stderr or ""
+
+    if result.code ~= 0 then
+      stderr = vim.trim(stderr)
+      stdout = vim.trim(stdout)
+      local details = stderr ~= "" and stderr or stdout
+      if details ~= "" then
+        error(string.format("[luai] Claude request failed: %s", details))
+      end
+      error(string.format("[luai] Claude request failed with exit code %s", result.code))
+    end
+
+    stdout = vim.trim(stdout)
+    if stdout == "" then
+      error "[luai] Claude returned an empty response."
+    end
+
+    return stdout
+  end,
+}
+
 ---@param prompt string
 ---@param model string
 ---@return string
 local request_generation = function(prompt, model)
-  if vim.fn.executable "agent" ~= 1 then
-    error "[luai] Could not find `agent` on PATH. Install Cursor Agent CLI and make sure it is available in your shell."
+  local backend = backends[config.provider]
+  if not backend then
+    error(string.format("[luai] Unknown provider %q. Valid providers: cursor, claude", config.provider))
   end
-
+  backend.check()
   local workspace = vim.uv.cwd() or vim.fn.getcwd()
-  local result = vim.system({
-    "agent",
-    "-p",
-    "--mode",
-    "ask",
-    "--output-format",
-    "json",
-    "--model",
-    model,
-    "--trust",
-    "--workspace",
-    workspace,
-    prompt,
-  }, { text = true }):wait()
-
-  local stdout = result.stdout or ""
-  local stderr = result.stderr or ""
-
-  if result.code ~= 0 then
-    stderr = vim.trim(stderr)
-    stdout = vim.trim(stdout)
-    local details = stderr ~= "" and stderr or stdout
-    if details ~= "" then
-      error(string.format("[luai] Cursor Agent request failed: %s", details))
-    end
-
-    error(string.format("[luai] Cursor Agent request failed with exit code %s", result.code))
-  end
-
-  local ok, decoded = pcall(vim.json.decode, stdout)
-  if not ok then
-    error(string.format("[luai] Cursor Agent returned invalid JSON:\n%s", stdout))
-  end
-
-  if type(decoded) ~= "table" or type(decoded.result) ~= "string" then
-    error(string.format("[luai] Cursor Agent JSON did not contain a string `result` field:\n%s", stdout))
-  end
-
-  return decoded.result
+  return backend.request(prompt, model, workspace)
 end
 
 --- Get the generated file
