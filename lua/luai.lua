@@ -72,12 +72,13 @@ local validate_generated_code = function(implementation)
   return true
 end
 
+---@param provider string
 ---@param response_text string
 ---@return string
-local normalize_generated_code = function(response_text)
+local normalize_generated_code = function(provider, response_text)
   local normalized = vim.trim(response_text)
   if normalized == "" then
-    error "[luai] Cursor Agent returned an empty response."
+    error(string.format("[luai] '%s' agent returned an empty response.", provider))
   end
 
   local candidates = { normalized }
@@ -115,8 +116,8 @@ local normalize_generated_code = function(response_text)
   end
 
   error(string.format(
-    "[luai] Cursor Agent response did not contain valid Lua starting with `return function(opts)`:\n%s",
-    response_text
+    "[luai] '%s' agent response did not contain valid Lua starting with `return function(opts)`:\n%s",
+    provider, response_text
   ))
 end
 
@@ -228,7 +229,7 @@ local generate_new_function = function(opts)
   local provider = opts.options.__provider or config.provider
   local model = opts.options.__model or config.model
   local response_text = request_generation(new_prompt.prompt, provider, model)
-  local implementation = normalize_generated_code(response_text)
+  local implementation = normalize_generated_code(provider, response_text)
 
   return {
     implementation = implementation,
