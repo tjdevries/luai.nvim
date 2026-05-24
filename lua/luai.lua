@@ -18,6 +18,7 @@ local path = require "luai.path"
 
 local M = {}
 local config = {
+  provider = "cursor",
   model = "composer-2-fast",
 }
 
@@ -26,7 +27,8 @@ local basepath = vim.fs.joinpath(vim.fn.stdpath "data" --[[@as string]], "luai",
 vim.fn.mkdir(basepath, "p")
 
 ---@class luai.Settings
----@field model? string: Default Cursor Agent model. Defaults to `composer-2-fast`.
+---@field provider? string: Default LLM provider. Defaults to `cursor`.
+---@field model? string: Default Agent model. Defaults to `composer-2-fast`.
 
 ---@class luai.GeneratedFunction
 ---@field function_name string
@@ -119,53 +121,30 @@ local normalize_generated_code = function(response_text)
 end
 
 ---@param prompt string
+---@param provider string
 ---@param model string
 ---@return string
-local request_generation = function(prompt, model)
-  if vim.fn.executable "agent" ~= 1 then
-    error "[luai] Could not find `agent` on PATH. Install Cursor Agent CLI and make sure it is available in your shell."
+local request_generation = function(prompt, provider, model)
+  if provider == nil or provider == "" then
+    vim.notify("[luai] provider is required", vim.log.levels.ERROR)
+    return ""
   end
 
-  local workspace = vim.uv.cwd() or vim.fn.getcwd()
-  local result = vim.system({
-    "agent",
-    "-p",
-    "--mode",
-    "ask",
-    "--output-format",
-    "json",
-    "--model",
-    model,
-    "--trust",
-    "--workspace",
-    workspace,
-    prompt,
-  }, { text = true }):wait()
-
-  local stdout = result.stdout or ""
-  local stderr = result.stderr or ""
-
-  if result.code ~= 0 then
-    stderr = vim.trim(stderr)
-    stdout = vim.trim(stdout)
-    local details = stderr ~= "" and stderr or stdout
-    if details ~= "" then
-      error(string.format("[luai] Cursor Agent request failed: %s", details))
-    end
-
-    error(string.format("[luai] Cursor Agent request failed with exit code %s", result.code))
+  if model == nil or model == "" then
+    vim.notify("[luai] model is required", vim.log.levels.ERROR)
+    return ""
   end
 
-  local ok, decoded = pcall(vim.json.decode, stdout)
-  if not ok then
-    error(string.format("[luai] Cursor Agent returned invalid JSON:\n%s", stdout))
+  if not provider:match "^[%w_%-%+]+$" then
+    vim.notify(
+      string.format("[luai] provider '%s' contains invalid characters. Only alphanumeric, _, -, + are allowed.", provider),
+      vim.log.levels.ERROR
+    )
+    return ""
   end
 
-  if type(decoded) ~= "table" or type(decoded.result) ~= "string" then
-    error(string.format("[luai] Cursor Agent JSON did not contain a string `result` field:\n%s", stdout))
-  end
-
-  return decoded.result
+  local p = require("luai.provider_" .. provider)
+  return p.request_generation(prompt, model)
 end
 
 --- Get the generated file
@@ -246,8 +225,9 @@ local generate_new_function = function(opts)
   print("[luai] generating new function:", opts.function_name)
 
   local new_prompt = require "luai.prompt"(opts)
+  local provider = opts.options.__provider or config.provider
   local model = opts.options.__model or config.model
-  local response_text = request_generation(new_prompt.prompt, model)
+  local response_text = request_generation(new_prompt.prompt, provider, model)
   local implementation = normalize_generated_code(response_text)
 
   return {
