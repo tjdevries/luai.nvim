@@ -4,15 +4,41 @@ Generate, Demand, and Improve Lua Functions on the fly.
 
 ## Setup
 
-`luai.nvim` now uses the local Cursor Agent CLI for generation. Make sure `agent` is installed, available on your `PATH`, and already authenticated before using the plugin.
+`luai.nvim` uses a provider-based architecture. Built-in providers are `cursor`, `opencode`, `ollama`, and `claude`.
 
 ```lua
 require("luai").setup {
+  provider = "cursor",   -- or "opencode", "ollama", "claude"
   model = "composer-2-fast",
 }
 ```
 
-Internally, `luai.nvim` invokes Cursor Agent in headless ask mode and consumes JSON output:
+The `opencode` provider expects a model in `provider/model` format:
+
+```lua
+require("luai").setup {
+  provider = "opencode",
+  model = "opencode/big-pickle",
+}
+```
+
+```lua
+require("luai").setup {
+  provider = "ollama",
+  model = "gemma4:e4b",
+}
+```
+
+```lua
+require("luai").setup {
+  provider = "claude",
+  model = "claude-sonnet-4-6",
+}
+```
+
+Additional providers can be easily added via `lua/luai/provider_*.lua` files.
+
+Internally, each provider shells out to its respective CLI and consumes the output; for example the default `cursor` provider will run:
 
 ```bash
 agent -p --mode ask --output-format json --model composer-2-fast --trust --workspace "$PWD" "<prompt>"
