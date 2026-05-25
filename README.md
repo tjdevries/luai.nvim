@@ -4,11 +4,11 @@ Generate, Demand, and Improve Lua Functions on the fly.
 
 ## Setup
 
-`luai.nvim` uses a provider-based architecture. Built-in providers are `cursor`, `opencode`, and `ollama`.
+`luai.nvim` uses a provider-based architecture. Built-in providers are `cursor`, `opencode`, `ollama`, and `claude`.
 
 ```lua
 require("luai").setup {
-  provider = "cursor",   -- or "opencode", "ollama"
+  provider = "cursor",   -- or "opencode", "ollama", "claude"
   model = "composer-2-fast",
 }
 ```
@@ -26,6 +26,13 @@ require("luai").setup {
 require("luai").setup {
   provider = "ollama",
   model = "gemma4:e4b",
+}
+```
+
+```lua
+require("luai").setup {
+  provider = "claude",
+  model = "claude-sonnet-4-6",
 }
 ```
 
